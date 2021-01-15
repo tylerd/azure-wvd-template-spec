@@ -1,0 +1,252 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]"
+        },
+        "instanceCount": {
+            "type": "int",
+            "metadata": {
+                "description": "Number of VMs to deploy"
+            },
+            "defaultValue": 2
+        },
+        "vmNamePrefix": {
+            "type": "string",
+            "metadata": {
+                "description": "VM Name Prefix. Full VM name followed by 00, 01, 02"
+            }
+        },
+        "useSharedImage": {
+            "type": "bool",
+            "defaultValue": true
+        },
+        "sharedImageGalleryRG": {
+            "type": "string",
+            "metadata": {
+                "description": "Shared Image Gallery Resource Group"
+            },
+            "defaultValue": ""
+        },
+        "sharedImageGalleryName": {
+            "type": "string",
+            "metadata": {
+                "description": "Shared Image Gallery Name"
+            },
+            "defaultValue": ""
+        },
+        "imageDefinition": {
+            "type": "string",
+            "metadata": {
+                "description": "Image Definition name in shared gallery"
+            },
+            "defaultValue": ""
+        },
+        "vmSize": {
+            "type": "string",
+            "metadata": {
+                "description": "The size of the session host VMs."
+            },
+            "defaultValue": "Standard_A2"
+        },
+        "vmDiskType": {
+            "type": "string",
+            "metadata": {
+                "description": "VM Disk type"
+            },
+            "allowedValues": [
+                "Premium_LRS",
+                "StandardSSD_LRS",
+                "Standard_LRS"
+            ],
+            "defaultValue": "Standard_LRS"
+        },
+        "adminUserName": {
+            "type": "string",
+            "metadata": {
+                "description": "VM User Name"
+            }
+        },
+        "adminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "VM User Password"
+            }
+        },
+        "subnetId": {
+            "type": "string",
+            "metadata": {
+                "description": "Target subnet resource id for vm deployment"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Existing Log Analytics Workspace resource id"
+            }
+        }
+    },
+    "functions": [],
+    "variables": {
+        "sharedGalleryImageRef": {
+            "id": "[resourceId(parameters('sharedImageGalleryRG'),'Microsoft.Compute/galleries/images', parameters('sharedImageGalleryName'), parameters('imageDefinition'))]"
+        },
+        "win10ImageRef": {
+            "publisher": "MicrosoftWindowsDesktop",
+            "offer": "office-365",
+            "sku": "19h2-evd-o365pp",
+            "version": "latest"
+        },
+        "daExtensionVersion": "9.5",
+        "mmaExtensionVersion": "1.0"
+    },
+    "resources": [
+        {
+            "name": "[concat(parameters('vmNamePrefix'),'-AVSET')]",
+            "type": "Microsoft.Compute/availabilitySets",
+            "apiVersion": "2019-12-01",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "Aligned"
+            },
+            "properties": {
+                "PlatformUpdateDomainCount": 3,
+                "PlatformFaultDomainCount": 2
+            }
+
+        },
+        {
+            "apiVersion": "2019-12-01",
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[concat(parameters('vmNamePrefix'), copyindex(), '-NIC')]",
+            "location": "[resourceGroup().location]",
+            "copy": {
+                "name": "rdsh-nic-loop",
+                "count": "[parameters('instanceCount')]"
+            },
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "subnet": {
+                                "id": "[parameters('subnetId')]"
+                            }
+                        }
+                    }
+                ],
+                "enableAcceleratedNetworking": false
+            },
+            "dependsOn": []
+        },
+        {
+            "apiVersion": "2019-07-01",
+            "type": "Microsoft.Compute/virtualMachines",
+            "name": "[concat(parameters('vmNamePrefix'), copyindex())]",
+            "location": "[resourceGroup().location]",
+            "copy": {
+                "name": "rdsh-vm-loop",
+                "count": "[parameters('instanceCount')]"
+            },
+            "dependsOn": [
+                "[concat(parameters('vmNamePrefix'),'-AVSET')]",
+                "[concat(parameters('vmNamePrefix'), copyindex(), '-NIC')]"
+            ],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[parameters('vmSize')]"
+                },
+                "availabilitySet": {
+                    "id": "[resourceId('Microsoft.Compute/availabilitySets',concat(parameters('vmNamePrefix'),'-AVSET'))]"
+                },
+                "osProfile": {
+                    "computerName": "[concat(parameters('vmNamePrefix'), copyindex())]",
+                    "adminUsername": "[parameters('adminUserName')]",
+                    "adminPassword": "[parameters('adminPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": "[if(parameters('useSharedImage'), variables('sharedGalleryImageRef'), variables('win10ImageRef'))]",
+                    "osDisk": {
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "[parameters('vmDiskType')]"
+                        },
+                        "name": "[concat(parameters('vmNamePrefix'), copyindex(),'-OSDISK')]"
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('vmNamePrefix'), copyindex(), '-NIC'))]"
+                        }
+                    ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": false
+                    }
+                },
+                "licenseType": "Windows_Client"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "apiVersion": "2019-12-01",
+            "name": "[concat(parameters('vmNamePrefix'), copyindex(), '/DependencyAgentWindows')]",
+            "location": "[resourceGroup().location]",
+            "copy": {
+                "name": "rdsh-vm-loop",
+                "count": "[parameters('instanceCount')]"
+            },
+            "dependsOn": [
+                "[concat(parameters('vmNamePrefix'), copyindex())]"
+            ],
+            "properties": {
+                "publisher": "Microsoft.Azure.Monitoring.DependencyAgent",
+                "type": "DependencyAgentWindows",
+                "typeHandlerVersion": "[variables('daExtensionVersion')]",
+                "autoUpgradeMinorVersion": true,
+                "enableAutomaticUpgrade": true,
+                "settings": {}
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "apiVersion": "2017-12-01",
+            "name": "[concat(parameters('vmNamePrefix'), copyindex(), '/MMAExtension')]",
+            "location": "[resourceGroup().location]",
+            "copy": {
+                "name": "rdsh-vm-loop",
+                "count": "[parameters('instanceCount')]"
+            },
+            "dependsOn": [
+                "[concat(parameters('vmNamePrefix'), copyindex())]"
+            ],
+            "properties": {
+                "publisher": "Microsoft.EnterpriseCloud.Monitoring",
+                "type": "MicrosoftMonitoringAgent",
+                "typeHandlerVersion": "[variables('mmaExtensionVersion')]",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "workspaceId": "[reference(parameters('workspaceResourceId'), '2015-03-20').customerId]",
+                    "stopOnMultipleConnections": true
+                },
+                "protectedSettings": {
+                    "workspaceKey": "[listKeys(parameters('workspaceResourceId'), '2015-03-20').primarySharedKey]"
+                }
+            }
+        }
+    ],
+    "outputs": {
+        "VMs": {
+            "type": "array",
+            "copy": {
+                "count": "[parameters('instanceCount')]",
+                "input": "[concat(parameters('vmNamePrefix'), copyindex())]"
+            }
+        }
+    }
+}

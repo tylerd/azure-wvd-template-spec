@@ -1,0 +1,69 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "VMs": {
+            "type": "array",
+            "metadata": {
+                "description": "Array of VMs to add extension to"
+            }
+        },
+        "domain": {
+            "type": "string",
+            "metadata": {
+                "description": "Domain to join"
+            }
+        },
+        "ouPath": {
+            "type": "string",
+            "metadata": {
+                "description": "OU Path"
+            },
+            "defaultValue": ""
+        },
+        "domainAdminAccount": {
+            "type": "string",
+            "metadata": {
+                "description": "Admin account username."
+            }
+        },
+        "domainAdminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Admin account password for domain join."
+            }
+        }
+    },
+    "functions": [],
+    "variables": {},
+    "resources": [
+        {
+            "apiVersion": "2018-10-01",
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "name": "[concat(parameters('VMs')[copyindex()], '/joindomain')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [],
+            "copy": {
+                "name": "rdsh-domain-join-loop",
+                "count": "[length(parameters('VMs'))]"
+            },
+            "properties": {
+                "publisher": "Microsoft.Compute",
+                "type": "JsonADDomainExtension",
+                "typeHandlerVersion": "1.3",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "name": "[parameters('domain')]",
+                    "ouPath": "[parameters('ouPath')]",
+                    "user": "[parameters('domainAdminAccount')]",
+                    "restart": "true",
+                    "options": "3"
+                },
+                "protectedSettings": {
+                    "password": "[parameters('domainAdminPassword')]"
+                }
+            }
+        }
+    ],
+    "outputs": {}
+}

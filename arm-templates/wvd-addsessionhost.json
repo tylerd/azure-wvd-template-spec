@@ -1,0 +1,65 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "VMs": {
+            "type": "array",
+            "metadata": {
+                "description": "Array of VMs to add extension to"
+            }
+        },
+        "artifactsLocation": {
+            "type": "string",
+            "metadata": {
+                "description": "The base URI where artifacts required by this template are located."
+            },
+            "defaultValue": "https://wvdportalstorageblob.blob.core.windows.net/galleryartifacts/Configuration_7-20-2020.zip"
+        },
+        "hostPoolName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the hostpool."
+            },
+            "defaultValue": "poolA"
+        },
+        "hostPoolToken": {
+            "type": "string",
+            "metadata": {
+                "description": "The token for adding VMs to the hostpool."
+            }
+        }
+    },
+    "functions": [],
+    "variables": {
+        "dseConfigurationFunction": "[concat(substring(parameters('artifactsLocation'), add(1, lastIndexOf(parameters('artifactsLocation'), '/'))),'\\', 'AddSessionHost')]"
+    },
+    "resources": [
+        {
+            "apiVersion": "2018-10-01",
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "name": "[concat(parameters('VMs')[copyindex()], '/dscextension')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [],
+            "copy": {
+                "name": "vm-loop",
+                "count": "[length(parameters('VMs'))]"
+            },
+            "properties": {
+                "publisher": "Microsoft.Powershell",
+                "type": "DSC",
+                "typeHandlerVersion": "2.73",
+                "autoUpgradeMinorVersion": true,
+                "protectedSettings": {},
+                "settings": {
+                    "modulesUrl": "[parameters('artifactsLocation')]",
+                    "configurationFunction": "Configuration.ps1\\AddSessionHost",
+                    "properties": {
+                        "hostPoolName": "[parameters('hostPoolName')]",
+                        "registrationInfoToken": "[parameters('hostPoolToken')]"
+                    }
+                }
+            }
+        }
+    ],
+    "outputs": {}
+}
